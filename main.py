@@ -30,25 +30,26 @@ def main():
   network = make_network()
   keep_training = True
 
-  skitrain = []
-  skians = []
-  for row in data:
-    skitrain.append(row[:-1])
-    skians.append(row[-1])
-  clf = MLPClassifier(solver='lbfgs', alpha=1e-5,hidden_layer_sizes = (20), random_state = 1,max_iter= 20000)
-  clf.fit(skitrain, skians)
-  answer = clf.predict(skitrain)
+  # skitrain = []
+  # skians = []
+  # for row in data:
+  #   skitrain.append(row[:-1])
+  #   skians.append(row[-1])
+  # clf = MLPClassifier(solver='lbfgs', alpha=1e-5,hidden_layer_sizes = (20), random_state = 1,max_iter= 20000)
+  # clf.fit(skitrain, skians)
+  # answer = clf.predict(skitrain)
 
-  precision = 0
-  for i in range(len(answer)):
-    if answer[i] == skians[i]:
-      precision += 1
-  print("MLP",precision/len(answer))
+  # precision = 0
+  # for i in range(len(answer)):
+  #   if answer[i] == skians[i]:
+  #     precision += 1
+  # print("MLP",precision/len(answer))
 
 
   sustain_run = 0
   prev_precision = 0
-  while sustain_run < 50000:
+  high = 0
+  while sustain_run < 500000000:
     yes = True
     for row in train_data:
       output = feed_forward(row,network)
@@ -60,7 +61,8 @@ def main():
       sustain_run += 1
     else:
       prev_precision = precision
-    print("precision =", precision)
+    high = max(precision,high)
+    print("precision =", precision,"high =,",high)
 
 
 def backpropagate_error(errors, network,input): # TODO: need to update this function name
@@ -106,6 +108,14 @@ def calculate_error(expected,actual):
   # print("actual",actual)
   # print("answer",answer)
 
+  maxv = 0
+  maxi = 0
+  for i in range(len(actual)):
+    if actual[i] > maxv:
+      maxv = actual[i]
+      maxi = i
+  #print(maxi, int(expected[-1])-1)
+
   for i in range(len(actual)):
     errors.append(answer[i] - actual[i])
 
@@ -119,7 +129,6 @@ def feed_forward(data,network):
   output = []
   for neuron in network[0]:
     for i in range (input_size-1):
-      print(neuron['weights'][i])
       neuron['output'] += neuron['weights'][i] * data[i]
 
     neuron['output'] += neuron['weights'][-1]
