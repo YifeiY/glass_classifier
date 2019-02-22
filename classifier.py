@@ -8,12 +8,13 @@ import datetime
 import csv
 
 n_input = 9
-n_hidden = 20
+n_hidden = 9 # 9,12,13,14
 n_output = 7
 learning_rate = 0.1
 
 def main():
   global learning_rate
+  random.seed(0)
   header, data = read_csv("GlassData.csv")
   data = normalize(data)
   ann = makeNetwork()
