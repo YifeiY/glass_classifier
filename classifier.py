@@ -1,3 +1,5 @@
+# By Yifei - 20054101
+
 import time
 import random
 from random import shuffle
@@ -9,17 +11,22 @@ import csv
 from sklearn.neural_network import MLPClassifier
 import multiprocessing as mp
 import copy
+import os
 
-ann_timeout = 600 # stop the ann after 10 minutes as the hard limit
+
+ann_timeout = 1800 # stop the ann after 30 minutes as the hard limit
 network_configuration = [9, 9, 7]
-iteration_limit = 5000 # max iterations, about 20 iterations can be iterated each second on each thread
+iteration_limit = 150000 # max iterations, about 20 iterations can be iterated each second on each thread
 learning_rate = 0.1 # this will be adjust by the program at runtime
+alpha = 0.9
 
 def main():
   header, data = read_csv("GlassData.csv")
   data = normalize(data)
-  #data = removeOutliers(data)
+  data = removeOutliers(data)
   train_data,test_data = makeTrainTest(data)
+  print("training set size =", len(train_data))
+  print("test set size =", len(test_data))
 
   # if False:
   #   inputs = [i[:-1] for i in  data]
@@ -45,29 +52,46 @@ def main():
     results.append(output[t])
   sorted(results,key = lambda x:x[2],reverse=True) # find the one with the highest precision on the test set
   best = results[0]
-  print("Best ann found has precision",best[2],"on test set,",best[1],"on train set after",best[3],"iterations")
-  print("\nThe weights are:")
-  print("\tinput layer:")
-  for neuron in best[0][0]:
-    print("\t",neuron['weight'])
-  print("\toutput layer:")
-  for neuron in best[0][1]:
-    print("\t",neuron['weight'])
+  print_report(best)
+  for i in results:
+    print_report(i)
 
+def print_report(result):
+  print("Best ann found has precision", result[3], "on test set,", result[2], "on train set after", result[5], "iterations,",
+        "overall precision =",result[4])
+  print("\n initial weights are")
+  print("\tinput layer:")
+  for neuron in result[0][0]:
+    print("\t", neuron['weight'])
+  print("\toutput layer:")
+  for neuron in result[0][1]:
+    print("\t", neuron['weight'])
+
+  print("\nAfter the training, the weights became:")
+  print("\tinput layer:")
+  for neuron in result[1][0]:
+    print("\t", neuron['weight'])
+  print("\toutput layer:")
+  for neuron in result[1][1]:
+    print("\t", neuron['weight'])
+
+  try:
+    os.system('say "program has finished"')
+  except:
+    pass
 
 def start_ANN_traning(output,train_data, test_data,process_number, learning_rate = 0.1,maxiteration = 5000):
   ann = makeNetwork(network_configuration)
+  initial_ann = copy.deepcopy(ann)
   avg_err = 100000000
   iteration = 0
   best_ann = copy.deepcopy(ann)
   high = 0
-  error_sum = 0
-  precision_sustained_number = 0
-  last_precision = 0
+  error_sum = 200
   start = time.time()
 
   print("start training ann number",process_number)
-  while (iteration < maxiteration or (error_sum > 60 and precision_sustained_number < 50)) and (time.time() - start) < ann_timeout:
+  while (iteration < maxiteration) and (error_sum > 30) and (time.time() - start < ann_timeout) and (avg_err > 1/6):
     # train_data, test_data = makeTrainTest(data)
     iteration += 1
     enhance = []
@@ -85,24 +109,33 @@ def start_ANN_traning(output,train_data, test_data,process_number, learning_rate
       error = calculateError(actual, row[-1])
       adjustWeights(error, ann, row[:-1],learning_rate)
     avg_err = error_sum / len(train_data)
-    learning_rate = error_sum / 300
+    learning_rate = error_sum / 200
     precision = validate(test_data, ann)
     if high < precision:
       high = precision
       if error_sum < 50:
         best_ann = copy.deepcopy(ann)
     high = max(precision, high)
-    if (last_precision-precision) < 2* (1/len(test_data)) * precision:
-      precision_sustained_number += 1
-    else:
-      last_precision = precision
+    print(avg_err)
     #print("error =", error_sum, "| precision =", precision, "|", len(enhance), "data points are in the enhanced training bag")
   if (time.time() - start) > ann_timeout:
     print("timeout, training terminated for ann number",process_number)
+  else:
+    print("training terminated for ann number",process_number)
+  print((iteration < maxiteration) ,"+", (error_sum) ,"+", (time.time() - start < ann_timeout))
   data = np.concatenate((train_data,test_data))
+
+
   if (validate(data,ann) > validate(data,best_ann)):
     best_ann = ann
-  output[process_number] = [best_ann,validate(train_data,best_ann),validate(test_data,best_ann),iteration]
+  try:
+    os.system('say "one network training has finished"')
+  except:
+    pass
+
+  output[process_number] = [initial_ann,best_ann,validate(train_data,best_ann),validate(test_data,best_ann),
+                            validate(data,ann),iteration]
+
 
 
 def validate(test_data,ann):
@@ -127,9 +160,8 @@ def adjustWeights(error,ann,row,learning_rate = 0.1):
     neuron = ann[1][i]
     neuron['delta'] = error[i] * neuron['output'] * (1 - neuron['output'])
     for j in range(len(neuron['weight']) - 1): # weights
-      neuron['weight'][j] += learning_rate * neuron['delta'] * ann[0][j]['output']
-    neuron['weight'][-1] += learning_rate * neuron['delta'] * 1 # bias
-
+      adjustNeuronWeights(neuron,ann[0][j]['output'],j)
+    adjustNeuronWeights(neuron,1,-1)
 
   for i in range(len(ann[0])):
     neuron = ann[0][i]
@@ -138,8 +170,21 @@ def adjustWeights(error,ann,row,learning_rate = 0.1):
       summ += n['delta'] * n['weight'][i]
     neuron['delta'] = summ * neuron['output'] * (1 - neuron['output'])
     for j in range(len(neuron['weight'])-1):
-      neuron['weight'][j] += learning_rate * neuron['delta'] * row[j]
-    neuron['weight'][-1] += learning_rate * neuron['delta']
+      adjustNeuronWeights(neuron,row[j],j)
+    adjustNeuronWeights(neuron,1,-1)
+
+
+def adjustNeuronWeights(neuron,another,j):
+  last_change = neuron['change'][j]
+  neuron['change'][j] = learning_rate * neuron['delta'] * another
+  if ((neuron['change'][j] > 0 and last_change < 0) or (
+      neuron['change'][j] < 0 and last_change > 0)):  # change direction
+    if neuron['direction'][j] > 5:  # has remained in one direction for 5 times, give it a momentum
+      neuron['change'][j] += alpha * neuron['change'][j]
+    neuron['direction'][j] = 0
+  else:  # did not change direction
+    neuron['direction'][j] += 1
+  neuron['weight'][j] += neuron['change'][j]
 
 
 def calculateError(actual,expected):
@@ -166,19 +211,19 @@ def sigmoid(x):
   return 1 / (1 + math.exp(-x))
 
 def makeTrainTest(data):
+  np.random.seed(0)
   np.random.shuffle(data)
   return data[:int(len(data)*4/5)],data[int(len(data)*4/5):] # train, test
 
 
 def makeNetwork(net_config):
-  random.seed(0)
-  return [[{'weight':[random.random() for n in range(net_config[0] + 1)], 'output':0, 'delta': 0} for n in range(net_config[1])],
-          [{'weight':[random.random() for n in range(net_config[0] + 1)], 'output':0, 'delta': 0} for n in range(net_config[2])]]
+  return [[{'weight':[random.random() for n in range(net_config[0] + 1)], 'output':0, 'delta': 0, 'change':[0] * (net_config[0] + 1), "direction":[0] * (net_config[0] + 1)} for n in range(net_config[1])],
+          [{'weight':[random.random() for n in range(net_config[1] + 1)], 'output':0, 'delta': 0, 'change':[0] * (net_config[1] + 1), "direction":[0] * (net_config[1] + 1)} for n in range(net_config[2])]]
 
 
 def removeOutliers(data):
   data = np.transpose(data)
-  print("removing data...")
+  print("removing outliers (+- 1.5 QI)...")
   remove_indices =[0] * len(data[0])
   for col in data[:-1]:
     q1 = np.percentile(col,25)
