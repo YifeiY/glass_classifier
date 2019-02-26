@@ -2,24 +2,22 @@
 
 import time
 import random
-from random import shuffle
 import numpy as np
 import math
-import matplotlib.pyplot as plt
-import csv
-from sklearn.neural_network import MLPClassifier
 import multiprocessing as mp
 import copy
-import os
+try: # only works for macOS
+  import os
+except:
+  pass
 
-
-ann_timeout = 36000 # stop the ann after 600 minutes as the hard limit
+ann_timeout = 600000 # stop the ann after 600 minutes as the hard limit
 network_configuration = [9, 9, 7]
-iteration_limit = 150000 # max iterations, about 20 iterations can be iterated each second on each thread
 learning_rate = 0.1 # this will be adjust by the program at runtime
 alpha = 0.9
 output_file_name = "outputfile.txt"
 
+threads_unfinished = 0
 
 def main():
   # read data
@@ -36,7 +34,9 @@ def main():
   thread_count = mp.cpu_count() - 1 # leave user one spare thread for other tasks
   manager = mp.Manager()
   output = manager.dict()
-  processes = [mp.Process(target=start_ANN_traning, args=(output,train_data,test_data,t,learning_rate,iteration_limit)) for t in range(thread_count)]
+  global threads_unfinished
+  threads_unfinished = thread_count
+  processes = [mp.Process(target=start_ANN_traning, args=(output,train_data,test_data,t,learning_rate)) for t in range(thread_count)]
   for p in processes:
     p.start()
   for p in processes:
@@ -87,8 +87,8 @@ def print_report(result):
 ##
 # the main training cycles
 ##
-def start_ANN_traning(output,train_data, test_data,process_number, learning_rate = 0.1,maxiteration = 5000):
-
+def start_ANN_traning(output,train_data, test_data,process_number, learning_rate = 0.1):
+  global threads_unfinished
   # make ann
   ann = makeNetwork(network_configuration)
 
@@ -103,7 +103,7 @@ def start_ANN_traning(output,train_data, test_data,process_number, learning_rate
 
   # training starts
   print("start training ann number",process_number)
-  while (iteration < maxiteration) and (error_sum > 30) and (time.time() - start < ann_timeout) and (avg_err > 1/3):
+  while (error_sum > 30) and (time.time() - start < ann_timeout) and (avg_err > 1/3):
 
     iteration += 1
     enhance = []
@@ -136,11 +136,15 @@ def start_ANN_traning(output,train_data, test_data,process_number, learning_rate
       if error_sum < 50:
         best_ann = copy.deepcopy(ann)
 
+    # if one ANN is performing badly compare to other ANNs (probably due to the starting conditions), terminate it
+    if threads_unfinished == 1:
+      break
+
   # tell the user what kind of termination happened, timeout or error floor
   if (time.time() - start) > ann_timeout:
     print("timeout, training terminated for ann number",process_number)
   else:
-    print("training terminated for ann number",process_number)
+    print("training terminated for ann number",process_number,"time =",time.time() - start)
 
   # compare the current ann (lowest error) and the best ann (highest precision)
   # the one performs better on the complete data set is chosen
@@ -151,6 +155,7 @@ def start_ANN_traning(output,train_data, test_data,process_number, learning_rate
   # plays a sound when training has finished for this ANN (only works on Mac)
   try:
     os.system('say "one network training has finished"')
+    threads_unfinished -= 1
   except:
     pass
 
